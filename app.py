@@ -72,6 +72,13 @@ TEMPLATE = """
                         border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
     .platform-opentable { background: #68d391; color: #1c4532; padding: 2px 7px;
                            border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+    .schedule-toggle { display: flex; gap: 1.5rem; margin-top: 0.25rem; }
+    .schedule-toggle label { display: flex; align-items: center; gap: 0.4rem;
+                              cursor: pointer; font-weight: normal; color: #222; }
+    .day-checks { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem; }
+    .day-checks label { display: flex; align-items: center; gap: 0.3rem; background: #f0f0f0;
+                        padding: 0.3rem 0.65rem; border-radius: 4px; cursor: pointer;
+                        font-size: 0.85rem; font-weight: normal; color: #222; }
   </style>
 </head>
 <body>
@@ -96,7 +103,7 @@ TEMPLATE = """
           <th>#</th>
           <th>Name</th>
           <th>Platform</th>
-          <th>Date</th>
+          <th>Schedule</th>
           <th>Party</th>
           <th>Time Window</th>
           <th></th>
@@ -108,7 +115,7 @@ TEMPLATE = """
           <td>{{ loop.index }}</td>
           <td>{{ r.name }}</td>
           <td><span class="platform-{{ r.platform }}">{{ r.platform }}</span></td>
-          <td>{{ r.date }}</td>
+          <td>{% if r.days_of_week %}{{ r.days_of_week|replace(',',', ')|title }} · {{ r.look_ahead_days }}d{% else %}{{ r.date }}{% endif %}</td>
           <td>{{ r.party_size }}</td>
           <td>{{ r.time_start }} – {{ r.time_end }}</td>
           <td style="white-space:nowrap;">
@@ -132,6 +139,7 @@ TEMPLATE = """
   <!-- Edit restaurant form -->
   <div class="card" id="edit-form" style="border-color:#d69e2e;">
     <h2>Edit Restaurant</h2>
+    {% set is_rec = edit_row.days_of_week %}
     <form method="post" action="/edit/{{ edit_rid }}">
       <div class="form-grid">
         <div class="field">
@@ -145,9 +153,28 @@ TEMPLATE = """
             <option value="opentable" {{ 'selected' if edit_row.platform == 'opentable' }}>OpenTable</option>
           </select>
         </div>
-        <div class="field">
-          <label>Date (YYYY-MM-DD)</label>
-          <input name="date" type="date" value="{{ edit_row.date }}" required>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label>Schedule</label>
+          <div class="schedule-toggle">
+            <label><input type="radio" name="schedule_type" value="specific" {{ 'checked' if not is_rec }} onchange="updateSchedule(this.closest('form'))"> Specific date</label>
+            <label><input type="radio" name="schedule_type" value="recurring" {{ 'checked' if is_rec }} onchange="updateSchedule(this.closest('form'))"> Recurring</label>
+          </div>
+        </div>
+        <div class="field specific-date-field">
+          <label>Date</label>
+          <input name="date" type="date" value="{{ edit_row.date or '' }}">
+        </div>
+        <div class="field recurring-fields" style="grid-column: 1 / -1;">
+          <label>Days of week</label>
+          <div class="day-checks">
+            {% for abbr, label in [('mon','Mon'),('tue','Tue'),('wed','Wed'),('thu','Thu'),('fri','Fri'),('sat','Sat'),('sun','Sun')] %}
+            <label><input type="checkbox" name="days_of_week" value="{{ abbr }}" {{ 'checked' if is_rec and abbr in edit_row.days_of_week }}> {{ label }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="field recurring-fields">
+          <label>Look-ahead (days)</label>
+          <input name="look_ahead_days" type="number" min="1" max="90" value="{{ edit_row.look_ahead_days or 45 }}">
         </div>
         <div class="field">
           <label>Party Size</label>
@@ -172,7 +199,17 @@ TEMPLATE = """
       </div>
     </form>
   </div>
-  <script>document.getElementById('edit-form').scrollIntoView({behavior:'smooth'});</script>
+  <script>
+    function updateSchedule(form) {
+      var recurring = form.querySelector('input[name="schedule_type"]:checked').value === 'recurring';
+      form.querySelectorAll('.specific-date-field').forEach(function(el) { el.style.display = recurring ? 'none' : ''; });
+      form.querySelectorAll('.recurring-fields').forEach(function(el) { el.style.display = recurring ? '' : 'none'; });
+    }
+    document.querySelectorAll('form').forEach(function(f) {
+      if (f.querySelector('input[name="schedule_type"]')) updateSchedule(f);
+    });
+    document.getElementById('edit-form').scrollIntoView({behavior:'smooth'});
+  </script>
   {% else %}
   <!-- Add restaurant form -->
   <div class="card">
@@ -181,7 +218,7 @@ TEMPLATE = """
       <div class="form-grid">
         <div class="field">
           <label>Name</label>
-          <input name="name" type="text" placeholder="e.g. Le Bernardin" required>
+          <input name="name" type="text" placeholder="e.g. Odeon" required>
         </div>
         <div class="field">
           <label>Platform</label>
@@ -190,9 +227,28 @@ TEMPLATE = """
             <option value="opentable">OpenTable</option>
           </select>
         </div>
-        <div class="field">
-          <label>Date (YYYY-MM-DD)</label>
-          <input name="date" type="date" required>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label>Schedule</label>
+          <div class="schedule-toggle">
+            <label><input type="radio" name="schedule_type" value="specific" checked onchange="updateSchedule(this.closest('form'))"> Specific date</label>
+            <label><input type="radio" name="schedule_type" value="recurring" onchange="updateSchedule(this.closest('form'))"> Recurring</label>
+          </div>
+        </div>
+        <div class="field specific-date-field">
+          <label>Date</label>
+          <input name="date" type="date">
+        </div>
+        <div class="field recurring-fields" style="grid-column: 1 / -1; display:none;">
+          <label>Days of week</label>
+          <div class="day-checks">
+            {% for abbr, label in [('mon','Mon'),('tue','Tue'),('wed','Wed'),('thu','Thu'),('fri','Fri'),('sat','Sat'),('sun','Sun')] %}
+            <label><input type="checkbox" name="days_of_week" value="{{ abbr }}"> {{ label }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="field recurring-fields" style="display:none;">
+          <label>Look-ahead (days)</label>
+          <input name="look_ahead_days" type="number" min="1" max="90" value="45">
         </div>
         <div class="field">
           <label>Party Size</label>
@@ -216,6 +272,13 @@ TEMPLATE = """
       </div>
     </form>
   </div>
+  <script>
+    function updateSchedule(form) {
+      var recurring = form.querySelector('input[name="schedule_type"]:checked').value === 'recurring';
+      form.querySelectorAll('.specific-date-field').forEach(function(el) { el.style.display = recurring ? 'none' : ''; });
+      form.querySelectorAll('.recurring-fields').forEach(function(el) { el.style.display = recurring ? '' : 'none'; });
+    }
+  </script>
   {% endif %}
 </body>
 </html>
@@ -258,31 +321,30 @@ def edit_form(rid: int):
     )
 
 
+def _form_to_data(form) -> dict:
+    recurring = form.get("schedule_type") == "recurring"
+    return {
+        "name":           form["name"].strip(),
+        "platform":       form["platform"].strip().lower(),
+        "url":            form["url"].strip(),
+        "date":           "" if recurring else form.get("date", "").strip(),
+        "party_size":     form["party_size"].strip(),
+        "time_start":     form["time_start"].strip(),
+        "time_end":       form["time_end"].strip(),
+        "days_of_week":   ",".join(form.getlist("days_of_week")) if recurring else "",
+        "look_ahead_days": form.get("look_ahead_days", "45") if recurring else "",
+    }
+
+
 @app.route("/edit/<int:rid>", methods=["POST"])
 def edit_save(rid: int):
-    update_restaurant(rid, {
-        "name":       request.form["name"].strip(),
-        "platform":   request.form["platform"].strip().lower(),
-        "url":        request.form["url"].strip(),
-        "date":       request.form["date"].strip(),
-        "party_size": request.form["party_size"].strip(),
-        "time_start": request.form["time_start"].strip(),
-        "time_end":   request.form["time_end"].strip(),
-    })
+    update_restaurant(rid, _form_to_data(request.form))
     return redirect(url_for("index"))
 
 
 @app.route("/add", methods=["POST"])
 def add():
-    add_restaurant({
-        "name":       request.form["name"].strip(),
-        "platform":   request.form["platform"].strip().lower(),
-        "url":        request.form["url"].strip(),
-        "date":       request.form["date"].strip(),
-        "party_size": request.form["party_size"].strip(),
-        "time_start": request.form["time_start"].strip(),
-        "time_end":   request.form["time_end"].strip(),
-    })
+    add_restaurant(_form_to_data(request.form))
     return redirect(url_for("index"))
 
 

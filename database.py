@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import (
     Column, Integer, String, MetaData, Table,
-    create_engine, delete, insert, select, update,
+    create_engine, delete, insert, select, text, update,
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///restaurant_monitor.db")
@@ -19,10 +19,12 @@ restaurants = Table("restaurants", _meta,
     Column("name", String, nullable=False),
     Column("platform", String, nullable=False),
     Column("url", String, nullable=False),
-    Column("date", String, nullable=False),
+    Column("date", String, nullable=False),   # "" for recurring entries
     Column("party_size", Integer, nullable=False),
     Column("time_start", String, nullable=False),
     Column("time_end", String, nullable=False),
+    Column("days_of_week", String),            # e.g. "thu,fri,sat"; NULL for specific-date
+    Column("look_ahead_days", Integer),        # e.g. 45; NULL for specific-date
 )
 
 notified_slots = Table("notified_slots", _meta,
@@ -33,6 +35,14 @@ notified_slots = Table("notified_slots", _meta,
 
 def init_db() -> None:
     _meta.create_all(engine)
+    # Migrate: add columns introduced after the initial schema
+    with engine.connect() as conn:
+        for col, typedef in [("days_of_week", "TEXT"), ("look_ahead_days", "INTEGER")]:
+            try:
+                conn.execute(text(f"ALTER TABLE restaurants ADD COLUMN {col} {typedef}"))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
 
 
 # ── Restaurants ───────────────────────────────────────────────────────────────
@@ -51,17 +61,23 @@ def get_restaurant(rid: int) -> dict | None:
     return row._asdict() if row else None
 
 
+def _restaurant_values(data: dict) -> dict:
+    return dict(
+        name=data["name"],
+        platform=data["platform"],
+        url=data["url"],
+        date=data.get("date", ""),
+        party_size=int(data["party_size"]),
+        time_start=data["time_start"],
+        time_end=data["time_end"],
+        days_of_week=data.get("days_of_week") or None,
+        look_ahead_days=int(data["look_ahead_days"]) if data.get("look_ahead_days") else None,
+    )
+
+
 def add_restaurant(data: dict) -> None:
     with engine.connect() as conn:
-        conn.execute(insert(restaurants).values(
-            name=data["name"],
-            platform=data["platform"],
-            url=data["url"],
-            date=data["date"],
-            party_size=int(data["party_size"]),
-            time_start=data["time_start"],
-            time_end=data["time_end"],
-        ))
+        conn.execute(insert(restaurants).values(**_restaurant_values(data)))
         conn.commit()
 
 
@@ -70,15 +86,7 @@ def update_restaurant(rid: int, data: dict) -> None:
         conn.execute(
             update(restaurants)
             .where(restaurants.c.id == rid)
-            .values(
-                name=data["name"],
-                platform=data["platform"],
-                url=data["url"],
-                date=data["date"],
-                party_size=int(data["party_size"]),
-                time_start=data["time_start"],
-                time_end=data["time_end"],
-            )
+            .values(**_restaurant_values(data))
         )
         conn.commit()
 

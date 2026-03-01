@@ -14,7 +14,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import date as date_type, datetime, timedelta
 
 import smtplib
 import ssl
@@ -370,6 +370,30 @@ def check_opentable(restaurant: dict) -> list[dict]:
     return slots
 
 # -----------------------------------------------------------------------------
+# Date expansion (specific date vs. recurring day-of-week pattern)
+# -----------------------------------------------------------------------------
+
+_DAY_ABBREVS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def expand_dates(restaurant: dict) -> list[str]:
+    """Return the list of YYYY-MM-DD strings to check for this restaurant."""
+    if restaurant.get("days_of_week"):
+        abbrevs = [d.strip().lower() for d in restaurant["days_of_week"].split(",")]
+        target_weekdays = {_DAY_ABBREVS[d] for d in abbrevs if d in _DAY_ABBREVS}
+        look_ahead = int(restaurant.get("look_ahead_days") or 45)
+        today = date_type.today()
+        return [
+            (today + timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(look_ahead + 1)
+            if (today + timedelta(days=i)).weekday() in target_weekdays
+        ]
+    if restaurant.get("date"):
+        return [restaurant["date"]]
+    return []
+
+
+# -----------------------------------------------------------------------------
 # Watchlist
 # -----------------------------------------------------------------------------
 
@@ -388,44 +412,45 @@ def check_all() -> None:
     watchlist = load_watchlist()
 
     for restaurant in watchlist:
-        log.info(
-            "Checking %-30s  [%s]  %s  party of %d  %s-%s",
-            restaurant["name"],
-            restaurant["platform"],
-            restaurant["date"],
-            restaurant["party_size"],
-            restaurant["time_start"],
-            restaurant["time_end"],
-        )
-
-        platform = restaurant["platform"]
-        if platform == "resy":
-            available = check_resy(restaurant)
-        else:
-            available = check_opentable(restaurant)
-
-        if not available:
-            log.info("  - No availability in window.")
+        dates = expand_dates(restaurant)
+        if not dates:
+            log.warning("Skipping '%s' — no date or days_of_week set.", restaurant["name"])
             continue
 
-        for slot in available:
-            # Unique key for this specific slot -- prevents repeat alerts
-            key = f"{restaurant['name']}|{restaurant['date']}|{slot['time']}"
+        for check_date in dates:
+            r = {**restaurant, "date": check_date}
+            log.info(
+                "Checking %-30s  [%s]  %s  party of %d  %s-%s",
+                r["name"], r["platform"], r["date"],
+                r["party_size"], r["time_start"], r["time_end"],
+            )
 
-            if is_notified(key):
-                log.info("  - Already notified about %s at %s -- skipping.", restaurant["name"], slot["time"])
+            if r["platform"] == "resy":
+                available = check_resy(r)
+            else:
+                available = check_opentable(r)
+
+            if not available:
+                log.info("  - No availability in window.")
                 continue
 
-            message = (
-                f"Table available!\n"
-                f"{restaurant['name']}\n"
-                f"{restaurant['date']} at {slot['time']}\n"
-                f"Party of {restaurant['party_size']}\n"
-                f"Book now: {slot['url']}"
-            )
-            log.info("  - MATCH: %s at %s -- sending email!", restaurant["name"], slot["time"])
-            send_email(message)
-            mark_notified(key)
+            for slot in available:
+                key = f"{r['name']}|{r['date']}|{slot['time']}"
+
+                if is_notified(key):
+                    log.info("  - Already notified about %s at %s -- skipping.", r["name"], slot["time"])
+                    continue
+
+                message = (
+                    f"Table available!\n"
+                    f"{r['name']}\n"
+                    f"{r['date']} at {slot['time']}\n"
+                    f"Party of {r['party_size']}\n"
+                    f"Book now: {slot['url']}"
+                )
+                log.info("  - MATCH: %s at %s -- sending email!", r["name"], slot["time"])
+                send_email(message)
+                mark_notified(key)
 
     log.info("---  Check complete  ---\n")
 
