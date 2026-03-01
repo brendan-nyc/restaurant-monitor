@@ -9,6 +9,7 @@ Usage:  python app.py
 """
 
 import csv
+import os
 import threading
 import time
 from pathlib import Path
@@ -333,6 +334,12 @@ def _background_monitor():
         time.sleep(30)
 
 
+# Start the background monitor whether served by gunicorn or run directly.
+# gunicorn imports this module but never executes __main__, so the thread
+# must be started at module level.
+_monitor_thread = threading.Thread(target=_background_monitor, daemon=True)
+_monitor_thread.start()
+
 if __name__ == "__main__":
     print()
     print("  Restaurant Reservation Monitor")
@@ -342,7 +349,5 @@ if __name__ == "__main__":
     print(f"  Checking every {CHECK_INTERVAL} minutes (background thread)")
     print()
 
-    monitor_thread = threading.Thread(target=_background_monitor, daemon=True)
-    monitor_thread.start()
-
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)

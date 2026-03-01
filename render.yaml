@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: restaurant-monitor
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1
+    envVars:
+      - key: RESY_EMAIL
+        sync: false
+      - key: RESY_PASSWORD
+        sync: false
+      - key: OPENTABLE_EMAIL
+        sync: false
+      - key: OPENTABLE_PASSWORD
+        sync: false
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: ALERT_EMAIL_TO
+        sync: false
