@@ -1,4 +1,5 @@
 config.env
+watchlist.csv
 .notified.json
 app.log
 __pycache__/
