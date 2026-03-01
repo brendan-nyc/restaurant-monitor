@@ -9,15 +9,12 @@ Usage:  python monitor.py
 Stop:   Press Ctrl+C
 """
 
-import csv
-import json
 import logging
 import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
 import smtplib
 import ssl
@@ -26,6 +23,7 @@ import requests
 import schedule
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from database import init_db, get_all_restaurants, is_notified, mark_notified
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -41,8 +39,6 @@ GMAIL_ADDRESS       = os.getenv("GMAIL_ADDRESS", "")
 GMAIL_APP_PASSWORD  = os.getenv("GMAIL_APP_PASSWORD", "")
 ALERT_EMAIL_TO      = os.getenv("ALERT_EMAIL_TO", "")
 
-WATCHLIST_FILE      = "watchlist.csv"
-NOTIFIED_FILE       = ".notified.json"   # hidden file - tracks what you've already been texted about
 CHECK_INTERVAL      = 10                  # minutes between checks
 
 # Resy's public web-client API key (same one their website uses)
@@ -86,23 +82,6 @@ def send_email(message: str) -> None:
         log.info("Email sent to %s", ALERT_EMAIL_TO)
     except Exception as e:
         log.error("Failed to send email: %s", e)
-
-# -----------------------------------------------------------------------------
-# Already-notified tracking  (avoids repeat texts for the same slot)
-# -----------------------------------------------------------------------------
-
-def load_notified() -> dict:
-    if not Path(NOTIFIED_FILE).exists():
-        return {}
-    with open(NOTIFIED_FILE) as f:
-        return json.load(f)
-
-def save_notified(notified: dict) -> None:
-    # Discard entries older than 24 hours so the file stays small
-    cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
-    pruned = {k: v for k, v in notified.items() if v > cutoff}
-    with open(NOTIFIED_FILE, "w") as f:
-        json.dump(pruned, f, indent=2)
 
 # -----------------------------------------------------------------------------
 # Time-window helper
@@ -395,46 +374,10 @@ def check_opentable(restaurant: dict) -> list[dict]:
 # -----------------------------------------------------------------------------
 
 def load_watchlist() -> list[dict]:
-    """Read watchlist.csv and return a list of restaurant dicts."""
-    if not Path(WATCHLIST_FILE).exists():
-        log.error("watchlist.csv not found. Please create it (see README).")
-        return []
-
-    restaurants = []
-    with open(WATCHLIST_FILE, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for i, row in enumerate(reader, start=1):
-            try:
-                name     = row["name"].strip()
-                platform = row["platform"].strip().lower()
-                url      = row["url"].strip()
-                date     = row["date"].strip()
-                size     = int(row["party_size"].strip())
-                t_start  = row["time_start"].strip()
-                t_end    = row["time_end"].strip()
-            except (KeyError, ValueError) as e:
-                log.warning("Skipping row %d in watchlist.csv -- %s", i, e)
-                continue
-
-            if platform not in ("resy", "opentable"):
-                log.warning(
-                    "Row %d: platform must be 'resy' or 'opentable', got '%s' -- skipping.",
-                    i, platform,
-                )
-                continue
-
-            restaurants.append({
-                "name":       name,
-                "platform":   platform,
-                "url":        url,
-                "date":       date,
-                "party_size": size,
-                "time_start": t_start,
-                "time_end":   t_end,
-            })
-
-    log.info("Watchlist: %d restaurant(s) loaded.", len(restaurants))
-    return restaurants
+    """Return all restaurants from the database."""
+    rows = get_all_restaurants()
+    log.info("Watchlist: %d restaurant(s) loaded.", len(rows))
+    return rows
 
 # -----------------------------------------------------------------------------
 # Main check loop
@@ -442,7 +385,6 @@ def load_watchlist() -> list[dict]:
 
 def check_all() -> None:
     log.info("---  Running availability check  ---")
-    notified  = load_notified()
     watchlist = load_watchlist()
 
     for restaurant in watchlist:
@@ -467,11 +409,11 @@ def check_all() -> None:
             continue
 
         for slot in available:
-            # Unique key for this specific slot -- prevents repeat texts
+            # Unique key for this specific slot -- prevents repeat alerts
             key = f"{restaurant['name']}|{restaurant['date']}|{slot['time']}"
 
-            if key in notified:
-                log.info("  - Already texted about %s at %s -- skipping.", restaurant["name"], slot["time"])
+            if is_notified(key):
+                log.info("  - Already notified about %s at %s -- skipping.", restaurant["name"], slot["time"])
                 continue
 
             message = (
@@ -483,9 +425,8 @@ def check_all() -> None:
             )
             log.info("  - MATCH: %s at %s -- sending email!", restaurant["name"], slot["time"])
             send_email(message)
-            notified[key] = datetime.now().isoformat()
+            mark_notified(key)
 
-    save_notified(notified)
     log.info("---  Check complete  ---\n")
 
 # -----------------------------------------------------------------------------
@@ -521,12 +462,12 @@ if __name__ == "__main__":
     print()
     print("  Restaurant Reservation Monitor")
     print("  ================================")
-    print(f"  Watchlist:  {WATCHLIST_FILE}")
     print(f"  Checking every {CHECK_INTERVAL} minutes")
     print(f"  Alerts -> {ALERT_EMAIL_TO or '(console - Gmail not configured)'}")
     print()
 
     validate_config()
+    init_db()
 
     # Run an immediate check, then schedule repeating checks
     check_all()

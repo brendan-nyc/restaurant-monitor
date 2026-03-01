@@ -8,16 +8,22 @@ availability monitor in a daemon thread.
 Usage:  python app.py
 """
 
-import csv
 import os
 import threading
 import time
-from pathlib import Path
 
 import schedule
 from flask import Flask, redirect, render_template_string, request, url_for
 
-from monitor import CHECK_INTERVAL, WATCHLIST_FILE, check_all, load_watchlist
+from database import (
+    init_db,
+    get_all_restaurants,
+    get_restaurant,
+    add_restaurant,
+    update_restaurant,
+    delete_restaurant,
+)
+from monitor import CHECK_INTERVAL, check_all
 
 app = Flask(__name__)
 
@@ -111,8 +117,8 @@ TEMPLATE = """
           <td>{{ r.time_start }} – {{ r.time_end }}</td>
           <td class="url-cell"><a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.url }}</a></td>
           <td style="white-space:nowrap;">
-            <a class="btn btn-warning" href="/edit/{{ loop.index0 }}">Edit</a>
-            <form class="inline" method="post" action="/delete/{{ loop.index0 }}"
+            <a class="btn btn-warning" href="/edit/{{ r.id }}">Edit</a>
+            <form class="inline" method="post" action="/delete/{{ r.id }}"
                   onsubmit="return confirm('Remove {{ r.name }}?')">
               <button class="btn btn-danger">Delete</button>
             </form>
@@ -130,7 +136,7 @@ TEMPLATE = """
   <!-- Edit restaurant form -->
   <div class="card" id="edit-form" style="border-color:#d69e2e;">
     <h2>Edit Restaurant</h2>
-    <form method="post" action="/edit/{{ edit_idx }}">
+    <form method="post" action="/edit/{{ edit_rid }}">
       <div class="form-grid">
         <div class="field">
           <label>Name</label>
@@ -219,23 +225,7 @@ TEMPLATE = """
 </html>
 """
 
-CSV_HEADERS = ["name", "platform", "url", "date", "party_size", "time_start", "time_end"]
-
-
-def _read_csv_rows() -> list[dict]:
-    """Return raw rows from watchlist.csv (no validation)."""
-    path = Path(WATCHLIST_FILE)
-    if not path.exists():
-        return []
-    with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
-
-
-def _write_csv_rows(rows: list[dict]) -> None:
-    with open(WATCHLIST_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
-        writer.writeheader()
-        writer.writerows(rows)
+init_db()
 
 
 def _next_run_str() -> str:
@@ -250,52 +240,31 @@ def _next_run_str() -> str:
 
 @app.route("/")
 def index():
-    restaurants = load_watchlist()
     return render_template_string(
         TEMPLATE,
-        restaurants=restaurants,
+        restaurants=get_all_restaurants(),
         interval=CHECK_INTERVAL,
         next_run=_next_run_str(),
-        edit_idx=None,
+        edit_rid=None,
         edit_row=None,
     )
 
 
-@app.route("/edit/<int:idx>")
-def edit_form(idx: int):
-    restaurants = load_watchlist()
-    rows = _read_csv_rows()
-    edit_row = rows[idx] if 0 <= idx < len(rows) else None
+@app.route("/edit/<int:rid>")
+def edit_form(rid: int):
     return render_template_string(
         TEMPLATE,
-        restaurants=restaurants,
+        restaurants=get_all_restaurants(),
         interval=CHECK_INTERVAL,
         next_run=_next_run_str(),
-        edit_idx=idx,
-        edit_row=edit_row,
+        edit_rid=rid,
+        edit_row=get_restaurant(rid),
     )
 
 
-@app.route("/edit/<int:idx>", methods=["POST"])
-def edit_save(idx: int):
-    rows = _read_csv_rows()
-    if 0 <= idx < len(rows):
-        rows[idx] = {
-            "name":       request.form["name"].strip(),
-            "platform":   request.form["platform"].strip().lower(),
-            "url":        request.form["url"].strip(),
-            "date":       request.form["date"].strip(),
-            "party_size": request.form["party_size"].strip(),
-            "time_start": request.form["time_start"].strip(),
-            "time_end":   request.form["time_end"].strip(),
-        }
-        _write_csv_rows(rows)
-    return redirect(url_for("index"))
-
-
-@app.route("/add", methods=["POST"])
-def add():
-    row = {
+@app.route("/edit/<int:rid>", methods=["POST"])
+def edit_save(rid: int):
+    update_restaurant(rid, {
         "name":       request.form["name"].strip(),
         "platform":   request.form["platform"].strip().lower(),
         "url":        request.form["url"].strip(),
@@ -303,19 +272,27 @@ def add():
         "party_size": request.form["party_size"].strip(),
         "time_start": request.form["time_start"].strip(),
         "time_end":   request.form["time_end"].strip(),
-    }
-    rows = _read_csv_rows()
-    rows.append(row)
-    _write_csv_rows(rows)
+    })
     return redirect(url_for("index"))
 
 
-@app.route("/delete/<int:idx>", methods=["POST"])
-def delete(idx: int):
-    rows = _read_csv_rows()
-    if 0 <= idx < len(rows):
-        rows.pop(idx)
-        _write_csv_rows(rows)
+@app.route("/add", methods=["POST"])
+def add():
+    add_restaurant({
+        "name":       request.form["name"].strip(),
+        "platform":   request.form["platform"].strip().lower(),
+        "url":        request.form["url"].strip(),
+        "date":       request.form["date"].strip(),
+        "party_size": request.form["party_size"].strip(),
+        "time_start": request.form["time_start"].strip(),
+        "time_end":   request.form["time_end"].strip(),
+    })
+    return redirect(url_for("index"))
+
+
+@app.route("/delete/<int:rid>", methods=["POST"])
+def delete(rid: int):
+    delete_restaurant(rid)
     return redirect(url_for("index"))
 
 
@@ -345,7 +322,6 @@ if __name__ == "__main__":
     print("  Restaurant Reservation Monitor")
     print("  ================================")
     print(f"  Web UI:     http://localhost:5000")
-    print(f"  Watchlist:  {WATCHLIST_FILE}")
     print(f"  Checking every {CHECK_INTERVAL} minutes (background thread)")
     print()
 

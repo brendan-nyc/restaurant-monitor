@@ -4,3 +4,4 @@ watchlist.csv
 app.log
 __pycache__/
 *.pyc
+*.db
