@@ -402,8 +402,13 @@ _res_cache_time: float = 0.0
 _RES_CACHE_TTL = 300  # seconds
 
 
+def get_cached_reservations() -> list[dict]:
+    """Return the last fetched reservations instantly (never blocks)."""
+    return _res_cache
+
+
 def fetch_resy_reservations() -> list[dict]:
-    """Return the user's upcoming Resy reservations (cached for 5 minutes)."""
+    """Fetch upcoming Resy reservations and update the cache."""
     global _res_cache, _res_cache_time
 
     if not RESY_EMAIL:

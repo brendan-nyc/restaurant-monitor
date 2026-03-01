@@ -23,7 +23,7 @@ from database import (
     update_restaurant,
     delete_restaurant,
 )
-from monitor import CHECK_INTERVAL, check_all, fetch_resy_reservations
+from monitor import CHECK_INTERVAL, check_all, fetch_resy_reservations, get_cached_reservations
 
 app = Flask(__name__)
 
@@ -333,7 +333,7 @@ def index():
     return render_template_string(
         TEMPLATE,
         restaurants=get_all_restaurants(),
-        resy_reservations=fetch_resy_reservations(),
+        resy_reservations=get_cached_reservations(),
         interval=CHECK_INTERVAL,
         next_run=_next_run_str(),
         edit_rid=None,
@@ -346,7 +346,7 @@ def edit_form(rid: int):
     return render_template_string(
         TEMPLATE,
         restaurants=get_all_restaurants(),
-        resy_reservations=fetch_resy_reservations(),
+        resy_reservations=get_cached_reservations(),
         interval=CHECK_INTERVAL,
         next_run=_next_run_str(),
         edit_rid=rid,
@@ -395,8 +395,10 @@ def check_now():
 
 def _background_monitor():
     """Run the schedule loop in a daemon thread."""
+    fetch_resy_reservations()
     check_all()
     schedule.every(CHECK_INTERVAL).minutes.do(check_all)
+    schedule.every(5).minutes.do(fetch_resy_reservations)
     while True:
         schedule.run_pending()
         time.sleep(30)
