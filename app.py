@@ -23,7 +23,7 @@ from database import (
     update_restaurant,
     delete_restaurant,
 )
-from monitor import CHECK_INTERVAL, check_all
+from monitor import CHECK_INTERVAL, check_all, fetch_resy_reservations
 
 app = Flask(__name__)
 
@@ -91,6 +91,37 @@ TEMPLATE = """
     <form class="inline" method="post" action="/check">
       <button class="btn btn-secondary" style="padding:0.2rem 0.8rem;font-size:0.8rem;">Check Now</button>
     </form>
+  </div>
+
+  <!-- Upcoming Reservations -->
+  <div class="card">
+    <h2>Upcoming Resy Reservations</h2>
+    {% if resy_reservations %}
+    <table>
+      <thead>
+        <tr>
+          <th>Restaurant</th>
+          <th>Date</th>
+          <th>Time</th>
+          <th>Party</th>
+          <th>Seating</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for res in resy_reservations %}
+        <tr>
+          <td>{{ res.name }}</td>
+          <td>{{ res.date }}</td>
+          <td>{{ res.time }}</td>
+          <td>{{ res.party_size }}</td>
+          <td>{{ res.seat_type }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No upcoming Resy reservations.</p>
+    {% endif %}
   </div>
 
   <!-- Watchlist table -->
@@ -302,6 +333,7 @@ def index():
     return render_template_string(
         TEMPLATE,
         restaurants=get_all_restaurants(),
+        resy_reservations=fetch_resy_reservations(),
         interval=CHECK_INTERVAL,
         next_run=_next_run_str(),
         edit_rid=None,
@@ -314,6 +346,7 @@ def edit_form(rid: int):
     return render_template_string(
         TEMPLATE,
         restaurants=get_all_restaurants(),
+        resy_reservations=fetch_resy_reservations(),
         interval=CHECK_INTERVAL,
         next_run=_next_run_str(),
         edit_rid=rid,

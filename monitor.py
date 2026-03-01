@@ -394,6 +394,60 @@ def expand_dates(restaurant: dict) -> list[str]:
 
 
 # -----------------------------------------------------------------------------
+# Resy reservations
+# -----------------------------------------------------------------------------
+
+_res_cache: list[dict] = []
+_res_cache_time: float = 0.0
+_RES_CACHE_TTL = 300  # seconds
+
+
+def fetch_resy_reservations() -> list[dict]:
+    """Return the user's upcoming Resy reservations (cached for 5 minutes)."""
+    global _res_cache, _res_cache_time
+
+    if not RESY_EMAIL:
+        return []
+
+    if time.time() - _res_cache_time < _RES_CACHE_TTL:
+        return _res_cache
+
+    try:
+        resy_login()
+        r = requests.get(
+            "https://api.resy.com/3/user/reservations",
+            params={"limit": 20, "offset": 0, "type": "upcoming"},
+            headers=_resy_headers(),
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        log.warning("Could not fetch Resy reservations: %s", e)
+        return _res_cache  # return stale cache rather than nothing
+
+    reservations = []
+    for res in data.get("reservations", []):
+        try:
+            venue   = res.get("venue", {})
+            details = res.get("details", {})
+            raw_time = details.get("time_slot", "")
+            reservations.append({
+                "name":       venue.get("name", ""),
+                "date":       details.get("day", ""),
+                "time":       raw_time[:5] if raw_time else "",
+                "party_size": details.get("party_size", ""),
+                "seat_type":  details.get("seat_type", ""),
+            })
+        except Exception:
+            continue
+
+    _res_cache = sorted(reservations, key=lambda x: (x["date"], x["time"]))
+    _res_cache_time = time.time()
+    return _res_cache
+
+
+# -----------------------------------------------------------------------------
 # Watchlist
 # -----------------------------------------------------------------------------
 
