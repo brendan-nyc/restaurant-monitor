@@ -49,10 +49,7 @@ TEMPLATE = """
     td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
     .empty { color: #999; font-style: italic; padding: 0.75rem 0; }
-    .url-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .url-cell a { color: #1a5a8a; text-decoration: none; }
-    .url-cell a:hover { text-decoration: underline; }
-    .btn { display: inline-block; padding: 0.4rem 0.9rem; border: none; border-radius: 5px;
+.btn { display: inline-block; padding: 0.4rem 0.9rem; border: none; border-radius: 5px;
            cursor: pointer; font-size: 0.85rem; font-weight: 500; text-decoration: none; }
     .btn-danger { background: #e53e3e; color: #fff; }
     .btn-danger:hover { background: #c53030; }
@@ -102,7 +99,6 @@ TEMPLATE = """
           <th>Date</th>
           <th>Party</th>
           <th>Time Window</th>
-          <th>URL</th>
           <th></th>
         </tr>
       </thead>
@@ -115,8 +111,8 @@ TEMPLATE = """
           <td>{{ r.date }}</td>
           <td>{{ r.party_size }}</td>
           <td>{{ r.time_start }} – {{ r.time_end }}</td>
-          <td class="url-cell"><a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.url }}</a></td>
           <td style="white-space:nowrap;">
+            <a class="btn btn-primary" href="{{ r.url }}" target="_blank" rel="noopener">Book</a>
             <a class="btn btn-warning" href="/edit/{{ r.id }}">Edit</a>
             <form class="inline" method="post" action="/delete/{{ r.id }}"
                   onsubmit="return confirm('Remove {{ r.name }}?')">
